@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ComedyClipper MVP | お笑いチャンネル切り抜きツール</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="badge">Comedy Channel Clipper MVP</p>
+      <h1>お笑いチャンネル向け<br>自動切り抜きツール</h1>
+      <p class="lead">
+        漫才・コント・トーク動画を読み込み、笑い声・拍手・大声・間のある場面から
+        ショート動画向けの切り抜き候補を自動生成します。
+      </p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>1. 動画を選択</h2>
+      <input id="videoFile" type="file" accept="video/*" />
+      <video id="video" controls></video>
+    </section>
+
+    <section class="card controls">
+      <h2>2. お笑いシーンを自動解析</h2>
+
+      <div class="grid">
+        <label>
+          切り抜き秒数
+          <input id="clipLength" type="number" value="35" min="10" max="180" />
+        </label>
+
+        <label>
+          検出モード
+          <select id="mode">
+            <option value="laugh" selected>笑い・拍手重視</option>
+            <option value="talk">トークの山場重視</option>
+            <option value="shorts">ショート向け強め</option>
+          </select>
+        </label>
+
+        <label>
+          最大候補数
+          <input id="maxClips" type="number" value="12" min="1" max="40" />
+        </label>
+      </div>
+
+      <button id="analyzeBtn" class="primary">笑える切り抜き候補を検出</button>
+      <p id="status" class="status">動画を選択してください。</p>
+    </section>
+
+    <section class="card">
+      <h2>3. 切り抜き候補</h2>
+      <p class="hint">
+        スコアが高いほど、笑い声・拍手・急な盛り上がり・テンポ変化が強い候補です。
+      </p>
+      <div id="clips" class="clips"></div>
+    </section>
+  </main>
+
+  <template id="clipTemplate">
+    <article class="clip">
+      <div>
+        <h3 class="clipTitle"></h3>
+        <p class="clipMeta"></p>
+        <p class="clipCopy"></p>
+      </div>
+      <div class="actions">
+        <button class="previewBtn">プレビュー</button>
+        <button class="exportBtn">MP4書き出し</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script src="./script.js"></script>
+</body>
+</html>
