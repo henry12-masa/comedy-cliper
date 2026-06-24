@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "comedy-cliper",
+  "compatibility_date": "2026-06-24",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "comedy-clipper-mvp"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
