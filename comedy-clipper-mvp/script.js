@@ -269,16 +269,39 @@ function formatTime(sec) {
 async function getFFmpeg() {
   if (ffmpegInstance) return ffmpegInstance;
 
-  const { FFmpeg } = FFmpegWASM;
+  if (!window.FFmpegWASM?.FFmpeg) {
+    throw new Error("FFmpeg本体を読み込めませんでした。index.htmlのCDN読み込みを確認してください。");
+  }
+
+  if (!window.FFmpegUtil?.toBlobURL) {
+    throw new Error("FFmpeg Utilを読み込めませんでした。@ffmpeg/util のscriptタグを確認してください。");
+  }
+
+  const { FFmpeg } = window.FFmpegWASM;
+  const { toBlobURL } = window.FFmpegUtil;
   const ffmpeg = new FFmpeg();
 
   ffmpeg.on("log", ({ message }) => {
     console.log(message);
   });
 
-  statusEl.textContent = "初回のみFFmpegを読み込み中です。";
+  ffmpeg.on("progress", ({ progress }) => {
+    const percent = Math.max(0, Math.min(100, Math.round(progress * 100)));
+    if (Number.isFinite(percent)) {
+      statusEl.textContent = `MP4を書き出し中です。${percent}%`;
+    }
+  });
+
+  statusEl.textContent = "初回のみFFmpegを読み込み中です。少し時間がかかります。";
+
+  // CDN上のFFmpeg Workerをそのまま読むと、Cloudflare Pages等で
+  // SecurityError: Failed to construct 'Worker' が出るため、Blob URL化して読み込みます。
+  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+
   await ffmpeg.load({
-    coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js"
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, "text/javascript")
   });
 
   ffmpegInstance = ffmpeg;
@@ -288,33 +311,64 @@ async function getFFmpeg() {
 async function exportClip(clip) {
   if (!currentFile) return;
 
+  const exportButtons = document.querySelectorAll(".exportBtn");
+  exportButtons.forEach(btn => (btn.disabled = true));
+
   const ffmpeg = await getFFmpeg();
 
-  const inputName = "input.mp4";
+  const safeExt = currentFile.name.split(".").pop()?.toLowerCase() || "mp4";
+  const inputName = `input.${safeExt}`;
   const outputName = `comedy-clip-${clip.id}.mp4`;
+  const duration = Math.max(1, clip.end - clip.start);
 
-  statusEl.textContent = `候補${clip.id}を書き出し中です。`;
+  try {
+    statusEl.textContent = `候補${clip.id}を書き出し準備中です。`;
 
-  const data = new Uint8Array(await currentFile.arrayBuffer());
-  await ffmpeg.writeFile(inputName, data);
+    try { await ffmpeg.deleteFile(inputName); } catch (_) {}
+    try { await ffmpeg.deleteFile(outputName); } catch (_) {}
 
-  await ffmpeg.exec([
-    "-ss", String(clip.start),
-    "-to", String(clip.end),
-    "-i", inputName,
-    "-c", "copy",
-    outputName
-  ]);
+    const data = new Uint8Array(await currentFile.arrayBuffer());
+    await ffmpeg.writeFile(inputName, data);
 
-  const outputData = await ffmpeg.readFile(outputName);
-  const blob = new Blob([outputData.buffer], { type: "video/mp4" });
-  const url = URL.createObjectURL(blob);
+    statusEl.textContent = `候補${clip.id}を書き出し中です。`;
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = outputName;
-  a.click();
+    // -c copy は速い反面、キーフレーム位置で失敗・音ズレしやすいため、
+    // まずは安定優先でMP4へ再エンコードします。
+    await ffmpeg.exec([
+      "-ss", String(clip.start),
+      "-i", inputName,
+      "-t", String(duration),
+      "-map", "0:v:0?",
+      "-map", "0:a:0?",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "23",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-movflags", "faststart",
+      outputName
+    ]);
 
-  URL.revokeObjectURL(url);
-  statusEl.textContent = `候補${clip.id}を書き出しました。`;
+    const outputData = await ffmpeg.readFile(outputName);
+    const blob = new Blob([outputData.buffer], { type: "video/mp4" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = outputName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    statusEl.textContent = `候補${clip.id}を書き出しました。`;
+  } catch (error) {
+    console.error(error);
+    statusEl.textContent = "書き出しに失敗しました。動画が大きすぎるか、ブラウザのメモリ不足の可能性があります。短めの秒数で再度試してください。";
+    alert("書き出しに失敗しました。Chromeで、切り抜き秒数を短くして再度試してください。詳しくはConsoleの赤いエラーを確認してください。");
+  } finally {
+    try { await ffmpeg.deleteFile(inputName); } catch (_) {}
+    try { await ffmpeg.deleteFile(outputName); } catch (_) {}
+    exportButtons.forEach(btn => (btn.disabled = false));
+  }
 }
